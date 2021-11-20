@@ -11,10 +11,6 @@ from dataset import CrossEncoderDatasetFull
 from utils import *
 
 
-
-
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='configs/config_pairwise_long_reg_span.json')

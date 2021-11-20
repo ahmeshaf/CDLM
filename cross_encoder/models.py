@@ -110,10 +110,6 @@ class SimplePairWiseClassifier(nn.Module):
     def forward(self, first, second):
         return self.pairwise_mlp(torch.cat((first, second, first * second), dim=1))
 
-
-
-
-
 class FullCrossEncoder(nn.Module):
     def __init__(self, config, is_training=True, long=False):
         super(FullCrossEncoder, self).__init__()
@@ -163,3 +159,45 @@ class FullCrossEncoder(nn.Module):
         else:
             scores = self.linear(torch.cat([cls_vector, arg1_vec, arg2_vec, arg1_vec*arg2_vec],dim=1))
         return scores
+
+    def generate_rep(self, input_ids, attention_mask=None, arg1=None,):
+        output, _ = self.model(input_ids, attention_mask=attention_mask)
+        arg1_vec = (output*arg1.unsqueeze(-1)).sum(1)
+        return arg1_vec
+
+
+class FullCrossEncoderSingle(FullCrossEncoder):
+    def __init__(self, config, is_training=True, long=False):
+        super(FullCrossEncoderSingle, self).__init__(config, is_training=is_training, long=long)
+
+    def forward(self, input_ids, attention_mask=None, arg1=None, arg2=None):
+        output, _ = self.model(input_ids, attention_mask=attention_mask)
+        arg1_vec = (output * arg1.unsqueeze(-1)).sum(1)
+        return arg1_vec
+
+import numpy as np
+
+class Regressor(nn.Module):
+    def __init__(self, feature_len):
+        super(Regressor, self).__init__()
+        self.hidden_size = feature_len
+        self.second_layer = 4
+
+        self.linear1 = torch.nn.Linear(self.hidden_size, self.second_layer)
+        self.linear2 = torch.nn.Linear(self.second_layer, 1)
+        # self.softmax = nn.LogSoftmax(dim=1)
+        self.init_weights()
+
+    def init_weights(self):
+        stdv2 = 1. / np.sqrt(self.linear1.weight.shape[0])
+        self.linear1.weight.data.uniform_(0., stdv2)
+        self.linear2.weight.data.uniform_(0., 1. / np.sqrt(self.linear2.weight.shape[0]))
+        torch.nn.init.constant_(self.linear1.bias.data, 0.)
+        torch.nn.init.constant_(self.linear2.bias.data, 0.)
+
+    def forward(self, x):
+        out = self.linear1(x)
+        out = torch.sigmoid(out)
+        out = self.linear2(out)
+        out = torch.sigmoid(out)
+        return out

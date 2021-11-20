@@ -47,12 +47,26 @@ class CrossEncoderDatasetFull(data.Dataset):
             self.predicted_topics = pickle.load(handle)
             self.predicted_topics = {x + '.xml':i for i, lst in enumerate(self.predicted_topics) for x in lst}
         self.read_files(config, split_name)
+        temp_file_dict_sentences_path = config.data_folder + '/' + split_name + 'temp_dict.pkl'
+
         self.lemmas = np.asarray([x['lemmas'] for x in self.mentions])
         self.topics = set([m['topic'] for m in self.mentions])
         self.mention_labels = torch.tensor([m['cluster_id'] for m in self.mentions])
-        self.doc_dict, self.doc_comp, self.doc_comp_no_seps = self.make_dict_of_sentences(self.documents)
-        self.doc_tokens_word2id, self.doc_tokens = self.compute_tokenization()
-        if split_name == 'train' or split_name == 'dev':
+
+        if not os.path.exists(temp_file_dict_sentences_path):
+            self.doc_dict, self.doc_comp, self.doc_comp_no_seps = self.make_dict_of_sentences(self.documents)
+            pickle.dump((self.doc_dict, self.doc_comp, self.doc_comp_no_seps),
+                        open(temp_file_dict_sentences_path, 'wb'))
+        self.doc_dict, self.doc_comp, self.doc_comp_no_seps = pickle.load(open(temp_file_dict_sentences_path,'rb') )
+
+        temp_token_file = config.data_folder + '/' + split_name + 'temp_token.pkl'
+        if not os.path.exists(temp_token_file):
+            self.doc_tokens_word2id, self.doc_tokens = self.compute_tokenization()
+            pickle.dump((self.doc_tokens_word2id, self.doc_tokens),
+                        open(temp_token_file, 'wb'))
+        self.doc_tokens_word2id, self.doc_tokens = pickle.load(open(temp_token_file, 'rb'))
+
+        if split_name == 'train' or split_name == 'dev' or (not config.use_predicted_topics):
             self.mentions_by_topics = collections.defaultdict(list)
             for i, m in enumerate(self.mentions):
                 self.mentions_by_topics[m['topic']].append(i)
@@ -65,36 +79,35 @@ class CrossEncoderDatasetFull(data.Dataset):
         self.second = []
         self.labels = []
 
-        for topic, mentions in self.mentions_by_topics.items():
-            first, second = zip(*list(combinations(range(len(mentions)), 2)))
-            mentions = torch.tensor(mentions)
-            first, second = torch.tensor(first), torch.tensor(second)
-            first, second = mentions[first], mentions[second]
-            labels = (self.mention_labels[first] != 0) & (self.mention_labels[second] != 0) \
-                     & (self.mention_labels[first] == self.mention_labels[second])
+        if split_name != 'test':
 
-            self.first.extend(first)
-            self.second.extend(second)
-            self.labels.extend(labels)
+            for topic, mentions in self.mentions_by_topics.items():
+                first, second = zip(*list(combinations(range(len(mentions)), 2)))
+                mentions = torch.tensor(mentions)
+                first, second = torch.tensor(first), torch.tensor(second)
+                first, second = mentions[first], mentions[second]
+                labels = (self.mention_labels[first] != 0) & (self.mention_labels[second] != 0) \
+                         & (self.mention_labels[first] == self.mention_labels[second])
 
-        self.first = torch.tensor(self.first)
-        self.second = torch.tensor(self.second)
-        self.labels = torch.tensor(self.labels, dtype=torch.float)
+                self.first.extend(first)
+                self.second.extend(second)
+                self.labels.extend(labels)
 
+            self.first = torch.tensor(self.first)
+            self.second = torch.tensor(self.second)
+            self.labels = torch.tensor(self.labels, dtype=torch.float)
 
-        if same_lemma:
-            idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
-            self.first = self.first[idx]
-            self.second = self.second[idx]
-            self.labels = self.labels[idx]
+            if same_lemma:
+                idx = (self.lemmas[self.first] == self.lemmas[self.second]).nonzero()
+                self.first = self.first[idx]
+                self.second = self.second[idx]
+                self.labels = self.labels[idx]
 
-
-
-        self.instances = self.prepare_pair_of_mentions(self.mentions, self.first,
-                                                       self.second)
-        if partial:
-            self.instances = self.instances[:int(0.3*len(self.labels))]
-            self.labels = self.labels[:len(self.instances)]
+            self.instances = self.prepare_pair_of_mentions(self.mentions, self.first,
+                                                           self.second)
+            if partial:
+                self.instances = self.instances[:int(0.3*len(self.labels))]
+                self.labels = self.labels[:len(self.instances)]
 
 
     def read_files(self, config, split_name):
@@ -108,9 +121,9 @@ class CrossEncoderDatasetFull(data.Dataset):
         if config.use_gold_mentions:
             with open(mentions_path, 'r') as f:
                 self.mentions = json.load(f)
-            if split_name == 'test':
-                for x in self.mentions:
-                    x['pred_topic'] = self.predicted_topics[x['doc_id']]
+            # if split_name == 'test':
+            #     for x in self.mentions:
+            #         x['pred_topic'] = self.predicted_topics[x['doc_id']]
 
 
 
@@ -194,6 +207,8 @@ class CrossEncoderDatasetFull(data.Dataset):
             else:
                 tokens = tokens[:-id_to_trun]
             token_ids = [x[0] for x in tokens]
+            if min(mention['tokens_ids']) == 1250:
+                pass
             start_idx = token_ids.index(min(mention['tokens_ids']))
             end_idx = token_ids.index(max(mention['tokens_ids'])) + 1
         mention_repr = [x[2] for x in tokens[:start_idx]] + ["<m>"] \
@@ -267,7 +282,13 @@ class CrossEncoderDatasetFull(data.Dataset):
             return np.asarray([self.encode_mention_with_context(m) for m in mentions])
 
 
+
     def prepare_pair_of_mentions(self, mentions, first, second):
+        if self.mode == 'regressor':
+            instances = [(self.mentions[first[i]],
+                          self.mentions[second[i]]) for i in range(len(first))]
+            return instances
+
         if self.mode is None:
             mentions_repr = np.asarray([self.encode_mention_with_context_long(m) for m in mentions])
             instances = [' '.join(['<g>', "<doc-s>", mentions_repr[first[i]], "</doc-s>","<doc-s>",
@@ -298,9 +319,6 @@ class CrossEncoderDatasetFull(data.Dataset):
 
     def __getitem__(self, index):
         return self.instances[index], self.labels[index].unsqueeze(-1)
-
-
-
 
 
 class CrossEncoderDatasetTopic(data.Dataset):

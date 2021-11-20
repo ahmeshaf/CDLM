@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 import pickle
 
-from corpus import Corpus
+from cross_encoder.corpus import Corpus
 
 
 
@@ -83,7 +83,7 @@ def get_loss_function(config):
     if config.loss == 'hinge':
         return torch.nn.HingeEmbeddingLoss()
     else:
-        return torch.nn.BCEWithLogitsLoss()
+        return torch.nn.NLLLoss()
 
 
 def get_optimizer(config, models):
