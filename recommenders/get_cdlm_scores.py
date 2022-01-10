@@ -44,6 +44,8 @@ def generate_mention_representations(config_file_path, model_dir, splits, out_fo
         cross_encoder = FullCrossEncoderSingle(config, long=seman)
         cross_encoder = cross_encoder.to(device)
         cross_encoder.model = AutoModel.from_pretrained(os.path.join(model_dir, 'bert')).to(device)
+        if cpu:
+            cross_encoder.linear.to(device)
         cross_encoder.linear.load_state_dict(torch.load(os.path.join(model_dir, 'linear')))
         model = torch.nn.DataParallel(cross_encoder, device_ids=device_ids)
         if cpu:
