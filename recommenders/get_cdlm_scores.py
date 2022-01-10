@@ -9,7 +9,7 @@ import torch
 from itertools import product
 from tqdm import tqdm
 
-def generate_mention_representations(config_file_path, model_dir, splits, out_folder, num_gpus=4, batch_size = 150):
+def generate_mention_representations(config_file_path, model_dir, splits, out_folder, num_gpus=4, batch_size = 150, cpu=False):
     long = True
     cdmlm = True
     seman = True
@@ -37,12 +37,17 @@ def generate_mention_representations(config_file_path, model_dir, splits, out_fo
 
         device_ids = config.gpu_num[:num_gpus]
         device = torch.device("cuda:{}".format(device_ids[0]))
-
+        
+        if cpu:
+            device = torch.device("cpu")
+        
         cross_encoder = FullCrossEncoderSingle(config, long=seman)
         cross_encoder = cross_encoder.to(device)
         cross_encoder.model = AutoModel.from_pretrained(os.path.join(model_dir, 'bert')).to(device)
         cross_encoder.linear.load_state_dict(torch.load(os.path.join(model_dir, 'linear')))
         model = torch.nn.DataParallel(cross_encoder, device_ids=device_ids)
+        if cpu:
+            model.module.to(device)
         model.eval()
 
         vector_map = {}
