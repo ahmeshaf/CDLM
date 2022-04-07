@@ -212,7 +212,7 @@ def get_mention_map_from_ann(ann_dir, ltf_doc_info_map, doc_sent_map, only_text=
     mention_rows = []
 
     # read the mention annotation files
-    ann_mention_rows = get_all_topic_rows(f"{mention_type}_mentions")
+    ann_mention_rows = get_all_topic_rows(ann_dir, f"{mention_type}_mentions")
 
     # check modes (text, image, sound, etc)
     for row in ann_mention_rows:
@@ -229,7 +229,7 @@ def get_mention_map_from_ann(ann_dir, ltf_doc_info_map, doc_sent_map, only_text=
                     mention_rows.append(row)
 
     # read the linking annotation files
-    linking_rows = get_all_topic_rows("kb_linking")
+    linking_rows = get_all_topic_rows(ann_dir, "kb_linking")
 
     # mention linking map
     linking_map = {row['mention_id']: row['kb_id'] for row in linking_rows}
